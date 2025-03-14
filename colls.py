@@ -50,10 +50,10 @@ def strip_quotes_python(col):
 
 def split_line_into_columns(line):
     """Split an ls -lQ line into 11 columns (0-10, filename at 8, arrow at 9, target at 10)."""
-    parts = line.strip().split()
+    parts = line.strip().split(maxsplit=8)
     if len(parts) < 9:
         parts.extend([""] * (9 - len(parts)))
-    filename_part = " ".join(parts[8:])
+    filename_part = parts[8]
     if ' -> ' in strip_ansi_codes(filename_part):
         filename, rest = filename_part.split(' -> ', 1)
         arrow = "->"
@@ -72,9 +72,9 @@ def calculate_column_widths(lines, strip_quotes=False):
     for line in lines:
         columns = split_line_into_columns(line)
         if len(columns) == 11:
-            filename = strip_quotes_python(columns[8]) if not strip_quotes else columns[8]
+            filename = strip_quotes_python(columns[8]) if strip_quotes else columns[8]
             arrow = strip_ansi_codes(columns[9])
-            target = strip_quotes_python(columns[10]) if not strip_quotes else columns[10]
+            target = strip_quotes_python(columns[10]) if strip_quotes else columns[10]
             for i, col in enumerate(columns):
                 if i == 8:
                     display_col = strip_ansi_codes(filename)
@@ -129,7 +129,7 @@ Options:
                      Uses single space as separator.
   --"COLS[SEP]COLS" Extended syntax to select columns with custom separators
                      (e.g., --"9_5_1" or --"9 - 5 - 1").
-  -Q                 Keep quotes around filenames (default: strip quotes).
+  -Q                 Show filenames with quotes (default: quotes stripped).
   --header           Show column headers above the listing.
   --max-pad N        Set max padding for reverse highlight (default: 5, 0 to disable).
   --version          Display version and license information.
@@ -140,7 +140,7 @@ Columns:
   2: Number of links
   3: Owner name
   4: Group name
-  5: Size in bytes
+  5: Size in bytes (human-readable)
   6: Month of last modification
   7: Day of last modification
   8: Time/year of last modification
@@ -164,7 +164,7 @@ Notes:
     print(help_text.strip())
 
 def main():
-    cmd = ["/bin/ls", "--color=always", "-lQAhF"]
+    cmd = ["/bin/ls", "--color=always", "-lQAhF"]  # Keep -Q for parsing
     args = sys.argv[1:]
 
     if "--version" in args:
@@ -228,7 +228,8 @@ def main():
         print(lines[0])
         lines = lines[1:]
 
-    widths, extra_widths = calculate_column_widths(lines, strip_quotes=use_quotes)
+    # Always strip quotes for width calculation to avoid quote width affecting padding
+    widths, extra_widths = calculate_column_widths(lines, strip_quotes=True)
 
     if show_header:
         print_header(widths, extra_widths, columns_to_show, separators)
@@ -239,6 +240,7 @@ def main():
         if len(columns) == 11:
             file_count += 1
             display_cols = columns.copy()
+            # Strip quotes from filename and target unless user explicitly wants quotes
             if not use_quotes:
                 display_cols[8] = strip_quotes_python(columns[8])
                 display_cols[10] = strip_quotes_python(columns[10]) if strip_ansi_codes(columns[10]).strip() else columns[10]
