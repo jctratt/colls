@@ -32,21 +32,45 @@ def get_color_code(text):
             return f"\x1b[{code}m"
     return ''
 
-def strip_quotes_python(col):
-    """Strip outer quotes from the content, preserving ANSI codes."""
+def strip_quotes_python(col, keep_indicator=True):
+    """Strip outer quotes added by ls -lQ, preserving ANSI codes, internal quotes, and indicators."""
     if not col:
         return col
-    pattern = r'(\x1b\[[0-9;]*[mK]*)"(.*?)"(\x1b\[[0-9;]*[mK]*)'
-    match = re.match(pattern, col)
-    if match:
-        start_code, content, end_code = match.groups()
-        return (start_code or '') + content + (end_code or '')
+
+    # Get clean text for quote detection
     clean = strip_ansi_codes(col)
-    if clean.startswith('"') and clean.endswith('"'):
-        begin = col.find('"')
-        end = col.rfind('"') + 1
-        return col[:begin] + clean[1:-1] + col[end:]
-    return col
+    if not (clean.startswith('"') and '"' in clean[1:]):
+        return col
+
+    # Define indicators
+    indicators = '*/@|='
+
+    # Find outer quotes in original string
+    start = col.find('"')
+    end = col.rfind('"') + 1
+
+    # Extract content between outer quotes (actual filename)
+    content = col[start + 1:end - 1]
+
+    # Check for indicator immediately after the closing quote
+    indicator = ''
+    if end < len(col) and col[end] in indicators:
+        indicator = col[end]
+
+    # Reconstruct:
+    # - ANSI codes before first quote
+    # - Content (filename, may have internal quotes)
+    # - Indicator if present and requested
+    # - Remaining ANSI codes after indicator
+    result = col[:start] + content
+    if keep_indicator and indicator:
+        result += indicator
+    # Only append remaining ANSI codes if they exist after indicator
+    ansi_tail = col[end + len(indicator):] if end + len(indicator) < len(col) else ''
+    if ansi_tail and not ansi_tail.startswith('"'):  # Avoid adding stray quotes
+        result += ansi_tail
+
+    return result
 
 def split_line_into_columns(line):
     """Split an ls -lQ line into 11 columns (0-10, filename at 8, arrow at 9, target at 10)."""
@@ -72,9 +96,9 @@ def calculate_column_widths(lines, strip_quotes=False):
     for line in lines:
         columns = split_line_into_columns(line)
         if len(columns) == 11:
-            filename = strip_quotes_python(columns[8]) if strip_quotes else columns[8]
+            filename = strip_quotes_python(columns[8], keep_indicator=True) if strip_quotes else columns[8]
             arrow = strip_ansi_codes(columns[9])
-            target = strip_quotes_python(columns[10]) if strip_quotes else columns[10]
+            target = strip_quotes_python(columns[10], keep_indicator=True) if strip_quotes else columns[10]
             for i, col in enumerate(columns):
                 if i == 8:
                     display_col = strip_ansi_codes(filename)
@@ -164,7 +188,7 @@ Notes:
     print(help_text.strip())
 
 def main():
-    cmd = ["/bin/ls", "--color=always", "-lQAhF"]  # Keep -Q for parsing
+    cmd = ["/bin/ls", "--color=always", "-lQAhF"]  # Keep -F for indicators
     args = sys.argv[1:]
 
     if "--version" in args:
@@ -242,8 +266,8 @@ def main():
             display_cols = columns.copy()
             # Strip quotes from filename and target unless user explicitly wants quotes
             if not use_quotes:
-                display_cols[8] = strip_quotes_python(columns[8])
-                display_cols[10] = strip_quotes_python(columns[10]) if strip_ansi_codes(columns[10]).strip() else columns[10]
+                display_cols[8] = strip_quotes_python(columns[8], keep_indicator=True)
+                display_cols[10] = strip_quotes_python(columns[10], keep_indicator=True) if strip_ansi_codes(columns[10]).strip() else columns[10]
             output_cols = []
             for col in columns_to_show:
                 if col in '123456789':
